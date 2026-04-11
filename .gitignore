@@ -1,0 +1,48 @@
+# IDE / Editor
+.kiro/
+.vscode/
+.idea/
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# macOS
+.DS_Store
+
+# Rust build artifacts
+**/target/
+
+# Node
+**/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Environment / local config
+*.local
+.env
+.env.*
+
+# SQLite databases (runtime artifacts)
+*.db
+*.db-shm
+*.db-wal
+
+# TLS certificates (generated at runtime)
+*.der
+*.pem
+*.crt
+*.key
+
+# Tauri generated schemas (auto-regenerated on build)
+frontend/src-tauri/gen/
+
+# Package lock files are kept (npm) but Cargo.lock
+# is kept for the Tauri app (binary) and server workspace

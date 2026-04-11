@@ -1,0 +1,217 @@
+syntax = "proto3";
+package fileshare.v1;
+
+message Envelope {
+    uint32 version = 1;
+    string correlation_id = 2;
+    oneof payload {
+        AuthRequest auth_request = 10;
+        AuthResponse auth_response = 11;
+        UploadRequest upload_request = 20;
+        UploadAck upload_ack = 21;
+        ChunkData chunk_data = 22;
+        ChunkAck chunk_ack = 23;
+        UploadComplete upload_complete = 24;
+        DownloadRequest download_request = 30;
+        DownloadAck download_ack = 31;
+        DownloadComplete download_complete = 32;
+        SessionListRequest session_list_request = 40;
+        SessionListResponse session_list_response = 41;
+        RevokeSessionRequest revoke_session_request = 42;
+        FileListRequest file_list_request = 50;
+        FileListResponse file_list_response = 51;
+        TransferHistoryRequest history_request = 60;
+        TransferHistoryResponse history_response = 61;
+        ErrorResponse error_response = 99;
+
+        // P2P messages (fields 100+)
+        TransferRequest transfer_request = 100;
+        TransferAccept transfer_accept = 101;
+        TransferReject transfer_reject = 102;
+        PeerInfoExchange peer_info_exchange = 103;
+        ResumeRequest resume_request = 104;
+        ResumeResponse resume_response = 105;
+    }
+}
+
+// Authentication messages
+
+message AuthRequest {
+    string username = 1;
+    string password = 2;
+}
+
+message AuthResponse {
+    string session_token = 1;
+    uint64 expires_at = 2;
+    string role = 3;
+}
+
+// Upload messages
+
+message UploadRequest {
+    string filename = 1;
+    uint64 file_size = 2;
+    string mime_type = 3;
+    string whole_file_hash = 4;
+    string hash_algorithm = 5;
+}
+
+message UploadAck {
+    string session_id = 1;
+    uint64 chunk_size = 2;
+    uint64 total_chunks = 3;
+}
+
+message ChunkData {
+    string session_id = 1;
+    uint64 chunk_index = 2;
+    uint64 offset = 3;
+    bytes data = 4;
+    string hash = 5;
+    string hash_algorithm = 6;
+}
+
+message ChunkAck {
+    string session_id = 1;
+    uint64 chunk_index = 2;
+}
+
+message UploadComplete {
+    string session_id = 1;
+    string file_id = 2;
+    string whole_file_hash = 3;
+}
+
+// Download messages
+
+message DownloadRequest {
+    string file_id = 1;
+}
+
+message DownloadAck {
+    string session_id = 1;
+    string file_id = 2;
+    string filename = 3;
+    uint64 file_size = 4;
+    uint64 chunk_size = 5;
+    uint64 total_chunks = 6;
+    string whole_file_hash = 7;
+}
+
+message DownloadComplete {
+    string session_id = 1;
+    string file_id = 2;
+}
+
+// Session management messages
+
+message SessionListRequest {}
+
+message SessionListResponse {
+    repeated SessionInfo sessions = 1;
+}
+
+message SessionInfo {
+    string session_id = 1;
+    string device_name = 2;
+    string status = 3;
+    uint64 last_active = 4;
+}
+
+message RevokeSessionRequest {
+    string session_id = 1;
+}
+
+// File listing messages
+
+message FileListRequest {}
+
+message FileListResponse {
+    repeated FileInfo files = 1;
+}
+
+message FileInfo {
+    string file_id = 1;
+    string filename = 2;
+    uint64 size = 3;
+    string mime_type = 4;
+    uint64 uploaded_at = 5;
+    string uploaded_by = 6;
+}
+
+// Transfer history messages
+
+message TransferHistoryRequest {}
+
+message TransferHistoryResponse {
+    repeated TransferHistoryEntry entries = 1;
+}
+
+message TransferHistoryEntry {
+    string session_id = 1;
+    string file_id = 2;
+    string filename = 3;
+    string direction = 4;
+    uint64 file_size = 5;
+    string status = 6;
+    uint64 started_at = 7;
+    uint64 completed_at = 8;
+    double avg_throughput_bps = 9;
+}
+
+// P2P transfer negotiation messages
+
+// Sender → Receiver: request to send a file
+message TransferRequest {
+    string session_id = 1;
+    string file_name = 2;
+    uint64 file_size = 3;
+    string whole_file_hash = 4;
+    string hash_algorithm = 5;
+    uint64 chunk_size = 6;
+    uint64 total_chunks = 7;
+    string sender_display_name = 8;
+}
+
+// Receiver → Sender: accept the transfer
+message TransferAccept {
+    string session_id = 1;
+}
+
+// Receiver → Sender: reject the transfer
+message TransferReject {
+    string session_id = 1;
+    string reason = 2;
+}
+
+// Exchanged after QUIC connection established
+message PeerInfoExchange {
+    string display_name = 1;
+    string cert_fingerprint = 2;
+    uint32 protocol_version = 3;
+}
+
+// Sender or Receiver → other: request to resume an interrupted transfer
+message ResumeRequest {
+    string session_id = 1;
+    uint64 file_size = 2;
+    uint64 file_modified_at = 3;
+}
+
+// Response to ResumeRequest
+message ResumeResponse {
+    string session_id = 1;
+    uint64 first_incomplete_chunk = 2;
+    repeated uint64 completed_chunks = 3;
+    uint64 total_chunks = 4;
+}
+
+// Error response
+
+message ErrorResponse {
+    uint32 code = 1;
+    string message = 2;
+    optional uint64 byte_offset = 3;
+    optional string retry_hint = 4;
+}

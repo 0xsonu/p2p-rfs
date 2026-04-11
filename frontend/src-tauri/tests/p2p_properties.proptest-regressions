@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d24abf1978127738a135ecacda7c79559880b9491dc8ee3e4b4294ad97c04928 # shrinks to payload = TransferProgressPayload { session_id: "a00aa0a0-000a-000a-aa0a-aaaaa00aaa00", file_name: "A", direction: "sending", completed_chunks: 0, total_chunks: 1, percentage: 63.635351470765684, speed_bps: 0.0, eta_seconds: 0.0 }

@@ -1,0 +1,60 @@
+[package]
+name = "file-sharing-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "file_sharing_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Server crate path dependencies
+protocol = { path = "../../server/protocol" }
+transfer = { path = "../../server/transfer" }
+integrity = { path = "../../server/integrity" }
+storage = { path = "../../server/storage" }
+rate_control = { path = "../../server/rate_control" }
+observability = { path = "../../server/observability" }
+
+# Networking and TLS
+quinn = "0.11"
+rustls = { version = "0.23", features = ["ring"] }
+rcgen = "0.13"
+ring = "0.17"
+
+# Peer discovery
+mdns-sd = "0.11"
+hostname = "0.4"
+flume = "0.11"
+
+# Concurrency and async
+dashmap = "6"
+tokio = { version = "1", features = ["full"] }
+
+# Data and serialization
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+prost = "0.13"
+
+# Error handling and logging
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json"] }
+anyhow = "1"
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+[dev-dependencies]
+proptest = "1"
+sha2 = "0.10"
+hex = "0.4"
+tempfile = "3"
+tokio = { version = "1", features = ["full", "test-util"] }
