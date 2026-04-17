@@ -4,9 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
-use crate::p2p_engine::{
-    P2PError, P2PTransferDirection, P2PTransferSession, P2PTransferStatus,
-};
+use crate::p2p_engine::{P2PError, P2PTransferDirection, P2PTransferSession, P2PTransferStatus};
 use crate::peer_registry::PeerInfo;
 use crate::settings::{self, P2PConfig, P2PSettings, SettingsError};
 use crate::state::AppState;
@@ -173,8 +171,13 @@ pub async fn start_engine(
 
     let config = P2PConfig::from_settings(&current_settings, data_dir);
 
-    let engine =
-        crate::p2p_engine::P2PEngine::start(config).await.map_err(CommandError::from)?;
+    let engine = match crate::p2p_engine::P2PEngine::start(config).await {
+        Ok(engine) => engine,
+        Err(e) => {
+            tracing::error!(error = %e, "P2P engine failed to start");
+            return Err(CommandError::from(e));
+        }
+    };
 
     engine.set_app_handle(app_handle).await;
 
@@ -205,7 +208,9 @@ pub async fn stop_engine(state: State<'_, AppState>) -> Result<(), CommandError>
 #[tauri::command]
 pub async fn list_peers(state: State<'_, AppState>) -> Result<Vec<PeerInfo>, CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
     Ok(engine.peer_registry().list())
 }
 
@@ -216,14 +221,19 @@ pub async fn connect_to_peer(
     address: String,
 ) -> Result<PeerInfo, CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
 
     let addr: SocketAddr = address.parse().map_err(|e| CommandError {
         code: "INVALID_ADDRESS".into(),
         message: format!("Invalid address: {e}"),
     })?;
 
-    let peer_id = engine.connect_to_peer(addr).await.map_err(CommandError::from)?;
+    let peer_id = engine
+        .connect_to_peer(addr)
+        .await
+        .map_err(CommandError::from)?;
 
     let peer_info = engine
         .peer_registry()
@@ -244,7 +254,9 @@ pub async fn send_file(
     file_path: String,
 ) -> Result<String, CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
 
     let session_id = engine
         .send_file(peer_id, PathBuf::from(file_path))
@@ -262,7 +274,9 @@ pub async fn accept_transfer(
     save_path: String,
 ) -> Result<(), CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
 
     engine
         .accept_transfer(session_id, PathBuf::from(save_path))
@@ -277,7 +291,9 @@ pub async fn reject_transfer(
     session_id: String,
 ) -> Result<(), CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
 
     engine
         .reject_transfer(session_id)
@@ -292,7 +308,9 @@ pub async fn pause_transfer(
     session_id: String,
 ) -> Result<(), CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
 
     engine
         .pause_transfer(session_id)
@@ -307,7 +325,9 @@ pub async fn cancel_transfer(
     session_id: String,
 ) -> Result<(), CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
 
     engine
         .cancel_transfer(session_id)
@@ -322,7 +342,9 @@ pub async fn resume_transfer(
     session_id: String,
 ) -> Result<(), CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
 
     engine
         .resume_transfer(session_id)
@@ -336,7 +358,9 @@ pub async fn get_transfer_history(
     state: State<'_, AppState>,
 ) -> Result<Vec<TransferHistoryEntry>, CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
 
     let sessions = engine.sessions();
     let mut history: Vec<TransferHistoryEntry> = sessions
@@ -395,7 +419,9 @@ pub async fn save_settings(
     // Validate first.
     let errors = settings::validate_p2p_settings(&new_settings);
     if !errors.is_empty() {
-        return Err(CommandError::from(SettingsError::ValidationFailed { errors }));
+        return Err(CommandError::from(SettingsError::ValidationFailed {
+            errors,
+        }));
     }
 
     // Persist to disk.
@@ -417,7 +443,9 @@ pub async fn save_settings(
 #[tauri::command]
 pub async fn get_local_info(state: State<'_, AppState>) -> Result<LocalInfo, CommandError> {
     let engine_guard = state.engine.read().await;
-    let engine = engine_guard.as_ref().ok_or(CommandError::from(P2PError::NotRunning))?;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or(CommandError::from(P2PError::NotRunning))?;
 
     let info = engine.discovery().local_info();
     Ok(LocalInfo {

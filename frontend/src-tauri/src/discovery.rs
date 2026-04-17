@@ -46,7 +46,7 @@ pub struct LocalPeerInfo {
 /// `PeerRegistry::evict_stale()` every 10 seconds.
 pub struct DiscoveryService {
     daemon: ServiceDaemon,
-    peer_registry: Arc<PeerRegistry>,
+    _peer_registry: Arc<PeerRegistry>,
     local_info: Arc<RwLock<LocalPeerInfo>>,
     /// The full mDNS service name used for the local registration.
     fullname: RwLock<String>,
@@ -64,8 +64,8 @@ impl DiscoveryService {
         listen_port: u16,
         cert_fingerprint: &str,
     ) -> Result<Self, DiscoveryError> {
-        let daemon = ServiceDaemon::new()
-            .map_err(|e| DiscoveryError::RegistrationFailed(e.to_string()))?;
+        let daemon =
+            ServiceDaemon::new().map_err(|e| DiscoveryError::RegistrationFailed(e.to_string()))?;
 
         let local_info = Arc::new(RwLock::new(LocalPeerInfo {
             display_name: display_name.to_string(),
@@ -74,7 +74,10 @@ impl DiscoveryService {
         }));
 
         // Build the mDNS service info for advertising.
-        let instance_name = format!("fileshare-{}", &cert_fingerprint[..8.min(cert_fingerprint.len())]);
+        let instance_name = format!(
+            "fileshare-{}",
+            &cert_fingerprint[..8.min(cert_fingerprint.len())]
+        );
         let properties = [
             (TXT_DISPLAY_NAME, display_name),
             (TXT_CERT_FINGERPRINT, cert_fingerprint),
@@ -84,7 +87,7 @@ impl DiscoveryService {
         let service_info = ServiceInfo::new(
             SERVICE_TYPE,
             &instance_name,
-            &format!("{}.", hostname_or_default()),
+            &hostname_local(),
             "",
             listen_port,
             &properties[..],
@@ -124,7 +127,7 @@ impl DiscoveryService {
 
         Ok(Self {
             daemon,
-            peer_registry,
+            _peer_registry: peer_registry,
             local_info,
             fullname: RwLock::new(fullname),
         })
@@ -177,7 +180,7 @@ impl DiscoveryService {
         let service_info = ServiceInfo::new(
             SERVICE_TYPE,
             &instance_name,
-            &format!("{}.", hostname_or_default()),
+            &hostname_local(),
             "",
             local.listen_port,
             &properties[..],
@@ -280,7 +283,8 @@ impl DiscoveryService {
                     for peer in &peers {
                         // If the fullname contains the peer's fingerprint prefix,
                         // or if the peer id matches the fullname, remove it.
-                        if fullname.contains(&peer.cert_fingerprint[..8.min(peer.cert_fingerprint.len())])
+                        if fullname
+                            .contains(&peer.cert_fingerprint[..8.min(peer.cert_fingerprint.len())])
                             || peer.id == fullname
                         {
                             info!(
@@ -316,10 +320,27 @@ impl DiscoveryService {
     }
 }
 
-/// Get the local hostname, falling back to "localhost" if unavailable.
-fn hostname_or_default() -> String {
-    hostname::get()
+/// Get the local hostname as a valid mDNS host string ending with `.local.`.
+///
+/// On macOS, `hostname::get()` often returns something like
+/// `Sonus-MacBook-Pro.local` (without a trailing dot), while on Windows it
+/// returns a plain NetBIOS name like `DESKTOP-ABC123`. The `mdns_sd` crate
+/// requires the hostname to end with `.local.`, so we normalise here to
+/// work correctly on both platforms.
+fn hostname_local() -> String {
+    let raw = hostname::get()
         .ok()
         .and_then(|h| h.into_string().ok())
-        .unwrap_or_else(|| "localhost".to_string())
+        .unwrap_or_else(|| "localhost".to_string());
+
+    // Strip any existing trailing dot(s) first, then normalise.
+    let trimmed = raw.trim_end_matches('.');
+
+    if trimmed.ends_with(".local") {
+        // Already has the `.local` suffix – just append the trailing dot.
+        format!("{}.", trimmed)
+    } else {
+        // Plain hostname (common on Windows/Linux) – append `.local.`
+        format!("{}.local.", trimmed)
+    }
 }

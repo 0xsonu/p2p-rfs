@@ -18,11 +18,11 @@ use crate::settings::P2PConfig;
 
 use integrity::{HashAlgorithm, IntegrityVerifier};
 use protocol::{
-    ChunkAck, ChunkData, PeerInfoExchange, Payload, ProtocolCodec, TransferAccept,
-    TransferReject, TransferRequest,
+    ChunkAck, ChunkData, Payload, PeerInfoExchange, ProtocolCodec, TransferAccept, TransferReject,
+    TransferRequest,
 };
 use storage::{StorageEngine, StorageEngineConfig};
-use transfer::session::{compute_chunk_layout, chunk_offset, SessionId};
+use transfer::session::{chunk_offset, compute_chunk_layout, SessionId};
 
 /// Top-level errors produced by the P2P engine.
 #[derive(Debug, Error)]
@@ -140,7 +140,7 @@ pub struct P2PEngine {
     /// Integrity verifier for chunk/file hash operations.
     integrity: Arc<IntegrityVerifier>,
     /// Storage engine for writing received chunks to disk.
-    storage_engine: Arc<StorageEngine>,
+    _storage_engine: Arc<StorageEngine>,
     /// Optional Tauri app handle for emitting events.
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
 }
@@ -174,8 +174,7 @@ impl P2PEngine {
         // 4. Create shared state.
         let peer_registry = Arc::new(PeerRegistry::new(Duration::from_secs(30)));
         let codec = Arc::new(ProtocolCodec::new(1, 1..=1));
-        let active_connections: Arc<DashMap<PeerId, quinn::Connection>> =
-            Arc::new(DashMap::new());
+        let active_connections: Arc<DashMap<PeerId, quinn::Connection>> = Arc::new(DashMap::new());
         let (shutdown_tx, _) = broadcast::channel::<()>(1);
         let sessions: Arc<DashMap<SessionId, P2PTransferSession>> = Arc::new(DashMap::new());
         let pending_incoming: Arc<DashMap<SessionId, oneshot::Sender<Option<PathBuf>>>> =
@@ -258,7 +257,7 @@ impl P2PEngine {
             sessions,
             pending_incoming,
             integrity,
-            storage_engine,
+            _storage_engine: storage_engine,
             app_handle: Arc::new(RwLock::new(None)),
         })
     }
@@ -322,8 +321,7 @@ impl P2PEngine {
             .set_status(&peer_id, PeerStatus::Connected);
 
         // Store the connection.
-        self.active_connections
-            .insert(peer_id.clone(), connection);
+        self.active_connections.insert(peer_id.clone(), connection);
 
         info!(peer_id = %peer_id, addr = %addr, "Connected to peer");
         Ok(peer_id)
@@ -359,9 +357,7 @@ impl P2PEngine {
             .unwrap_or_else(|| "unknown".to_string());
 
         // 3. Compute whole-file hash.
-        let whole_hash = self
-            .integrity
-            .hash_chunk(&file_data, HashAlgorithm::Sha256);
+        let whole_hash = self.integrity.hash_chunk(&file_data, HashAlgorithm::Sha256);
 
         // 4. Compute chunk layout.
         let (total_chunks, _last_chunk_size) =
@@ -736,10 +732,7 @@ impl P2PEngine {
 
     /// Exchange `PeerInfoExchange` messages with a remote peer over the first
     /// bidirectional QUIC stream. Returns the remote peer's ID (cert fingerprint).
-    async fn exchange_peer_info(
-        &self,
-        connection: &quinn::Connection,
-    ) -> Result<PeerId, P2PError> {
+    async fn exchange_peer_info(&self, connection: &quinn::Connection) -> Result<PeerId, P2PError> {
         let (mut send, mut recv) = connection
             .open_bi()
             .await
@@ -752,8 +745,12 @@ impl P2PEngine {
             protocol_version: self.codec.current_version(),
         };
 
-        Self::send_message(&self.codec, &mut send, &Payload::PeerInfoExchange(local_info))
-            .await?;
+        Self::send_message(
+            &self.codec,
+            &mut send,
+            &Payload::PeerInfoExchange(local_info),
+        )
+        .await?;
         send.finish()
             .map_err(|e| P2PError::Transport(format!("finish send: {e}")))?;
 
@@ -972,10 +969,8 @@ impl P2PEngine {
                                 );
                                 // Track retry.
                                 if let Some(mut entry) = sessions.get_mut(&session_id) {
-                                    let count = entry
-                                        .retry_counts
-                                        .entry(chunk.chunk_index)
-                                        .or_insert(0);
+                                    let count =
+                                        entry.retry_counts.entry(chunk.chunk_index).or_insert(0);
                                     *count += 1;
                                     if *count > max_retries {
                                         entry.status = P2PTransferStatus::Failed {
@@ -992,11 +987,7 @@ impl P2PEngine {
 
                             // Write chunk to disk.
                             if let Err(e) = file_storage
-                                .write_chunk(
-                                    actual_file_name.clone(),
-                                    chunk.offset,
-                                    &chunk.data,
-                                )
+                                .write_chunk(actual_file_name.clone(), chunk.offset, &chunk.data)
                                 .await
                             {
                                 warn!(error = %e, "Failed to write chunk to disk");
@@ -1014,8 +1005,7 @@ impl P2PEngine {
                                 chunk_index: chunk.chunk_index,
                             };
                             if let Err(e) =
-                                Self::send_message(&codec, &mut send, &Payload::ChunkAck(ack))
-                                    .await
+                                Self::send_message(&codec, &mut send, &Payload::ChunkAck(ack)).await
                             {
                                 warn!(error = %e, "Failed to send ChunkAck");
                                 return;
@@ -1174,13 +1164,8 @@ impl P2PEngine {
                 match incoming.await {
                     Ok(connection) => {
                         let remote_addr = connection.remote_address();
-                        match Self::handle_incoming_peer_info(
-                            &codec_clone,
-                            &name,
-                            &fp,
-                            &connection,
-                        )
-                        .await
+                        match Self::handle_incoming_peer_info(&codec_clone, &name, &fp, &connection)
+                            .await
                         {
                             Ok(peer_id) => {
                                 registry.set_status(&peer_id, PeerStatus::Connected);

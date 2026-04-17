@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { startEngine, type EngineInfo } from "../services/p2pBridge";
+
+import { useCallback, useEffect, useState } from "react";
+import { type EngineInfo, startEngine } from "../services/p2pBridge";
+
 
 export type EngineStatus = "stopped" | "starting" | "running" | "error";
 
@@ -10,10 +12,7 @@ export interface UseP2PEngineReturn {
   restart: () => void;
 }
 
-/**
- * Hook that starts the P2P engine on mount and tracks its status.
- * Replaces the old useAuth hook — no login/logout in P2P mode.
- */
+
 export function useP2PEngine(): UseP2PEngineReturn {
   const [status, setStatus] = useState<EngineStatus>("stopped");
   const [engineInfo, setEngineInfo] = useState<EngineInfo | null>(null);
@@ -23,13 +22,25 @@ export function useP2PEngine(): UseP2PEngineReturn {
   const init = useCallback(async () => {
     setStatus("starting");
     setError(null);
+
     try {
       const info = await startEngine();
       setEngineInfo(info);
       setStatus("running");
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to start P2P engine";
+    } catch (err: unknown) {
+      let message = "Failed to start P2P engine";
+      if (err instanceof Error) {
+        message = err.message;
+      } else if (
+        typeof err == "object" && err != null && "message" in err &&
+        typeof (err as Record<string, unknown>).message === "string"
+      ) {
+        const cmdErr = err as { code?: string; message: string };
+        message = cmdErr.code ? `[${cmdErr.code}] ${cmdErr.message}` : cmdErr.message;
+      } else if (typeof err === "string") {
+        message = err;
+      }
+
       setError(message);
       setStatus("error");
     }
@@ -44,4 +55,6 @@ export function useP2PEngine(): UseP2PEngineReturn {
   }, []);
 
   return { status, engineInfo, error, restart };
+
 }
+

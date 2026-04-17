@@ -24,8 +24,8 @@ pub enum CertError {
 /// Provides TLS configurations for both server (QUIC listener) and client
 /// (outgoing connections with trust-on-first-use).
 pub struct CertManager {
-    cert_path: PathBuf,
-    key_path: PathBuf,
+    _cert_path: PathBuf,
+    _key_path: PathBuf,
     cert_der: Vec<u8>,
     key_der: Vec<u8>,
     fingerprint: String,
@@ -52,8 +52,8 @@ impl CertManager {
         let fingerprint = Self::compute_fingerprint(&cert_der);
 
         Ok(Self {
-            cert_path,
-            key_path,
+            _cert_path: cert_path,
+            _key_path: key_path,
             cert_der,
             key_der,
             fingerprint,
@@ -134,7 +134,6 @@ impl CertManager {
     }
 }
 
-
 /// Trust-on-first-use certificate verifier that accepts any self-signed certificate.
 /// In a P2P context, peers are identified by their certificate fingerprint rather
 /// than a CA chain.
@@ -191,8 +190,8 @@ mod tests {
         // First call generates
         let cm1 = CertManager::load_or_generate(&dir).expect("generate should succeed");
         assert!(!cm1.fingerprint().is_empty());
-        assert!(cm1.cert_path.exists());
-        assert!(cm1.key_path.exists());
+        assert!(cm1._cert_path.exists());
+        assert!(cm1._key_path.exists());
 
         // Second call loads from disk
         let cm2 = CertManager::load_or_generate(&dir).expect("load should succeed");
