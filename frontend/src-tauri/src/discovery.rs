@@ -6,6 +6,7 @@ use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
+use crate::events;
 use crate::peer_registry::{PeerInfo, PeerRegistry, PeerStatus};
 
 /// mDNS/DNS-SD service type used for peer discovery on the LAN.
@@ -50,6 +51,8 @@ pub struct DiscoveryService {
     local_info: Arc<RwLock<LocalPeerInfo>>,
     /// The full mDNS service name used for the local registration.
     fullname: RwLock<String>,
+    /// Shared app handle for emitting Tauri events to the frontend.
+    _app_handle: Arc<tokio::sync::RwLock<Option<tauri::AppHandle>>>,
 }
 
 impl DiscoveryService {
@@ -63,6 +66,7 @@ impl DiscoveryService {
         display_name: &str,
         listen_port: u16,
         cert_fingerprint: &str,
+        app_handle: Arc<tokio::sync::RwLock<Option<tauri::AppHandle>>>,
     ) -> Result<Self, DiscoveryError> {
         let daemon =
             ServiceDaemon::new().map_err(|e| DiscoveryError::RegistrationFailed(e.to_string()))?;
@@ -92,7 +96,8 @@ impl DiscoveryService {
             listen_port,
             &properties[..],
         )
-        .map_err(|e| DiscoveryError::RegistrationFailed(e.to_string()))?;
+        .map_err(|e| DiscoveryError::RegistrationFailed(e.to_string()))?
+        .enable_addr_auto();
 
         let fullname = service_info.get_fullname().to_string();
 
@@ -115,14 +120,16 @@ impl DiscoveryService {
         // Spawn browse event processing task.
         let registry_for_browse = Arc::clone(&peer_registry);
         let own_fingerprint = cert_fingerprint.to_string();
+        let app_handle_for_browse = Arc::clone(&app_handle);
         std::thread::spawn(move || {
-            Self::browse_loop(browse_receiver, registry_for_browse, own_fingerprint);
+            Self::browse_loop(browse_receiver, registry_for_browse, own_fingerprint, app_handle_for_browse);
         });
 
         // Spawn stale peer eviction task (every 10 seconds).
         let registry_for_eviction = Arc::clone(&peer_registry);
+        let app_handle_for_eviction = Arc::clone(&app_handle);
         std::thread::spawn(move || {
-            Self::eviction_loop(registry_for_eviction);
+            Self::eviction_loop(registry_for_eviction, app_handle_for_eviction);
         });
 
         Ok(Self {
@@ -130,6 +137,7 @@ impl DiscoveryService {
             _peer_registry: peer_registry,
             local_info,
             fullname: RwLock::new(fullname),
+            _app_handle: app_handle,
         })
     }
 
@@ -185,7 +193,8 @@ impl DiscoveryService {
             local.listen_port,
             &properties[..],
         )
-        .map_err(|e| DiscoveryError::RegistrationFailed(e.to_string()))?;
+        .map_err(|e| DiscoveryError::RegistrationFailed(e.to_string()))?
+        .enable_addr_auto();
 
         *fullname = service_info.get_fullname().to_string();
 
@@ -208,6 +217,7 @@ impl DiscoveryService {
         receiver: flume::Receiver<ServiceEvent>,
         peer_registry: Arc<PeerRegistry>,
         own_fingerprint: String,
+        app_handle: Arc<tokio::sync::RwLock<Option<tauri::AppHandle>>>,
     ) {
         while let Ok(event) = receiver.recv() {
             match event {
@@ -273,16 +283,18 @@ impl DiscoveryService {
                         "Peer discovered via mDNS"
                     );
 
-                    peer_registry.upsert(peer_info);
+                    peer_registry.upsert(peer_info.clone());
+
+                    // Emit event to the frontend.
+                    if let Ok(guard) = app_handle.try_read() {
+                        if let Some(handle) = guard.as_ref() {
+                            events::emit_peer_discovered(handle, &peer_info);
+                        }
+                    }
                 }
                 ServiceEvent::ServiceRemoved(_, fullname) => {
-                    // Try to find the peer by matching the fullname or fingerprint.
-                    // The fullname from ServiceRemoved may not carry TXT records,
-                    // so we search the registry for a matching entry.
                     let peers = peer_registry.list();
                     for peer in &peers {
-                        // If the fullname contains the peer's fingerprint prefix,
-                        // or if the peer id matches the fullname, remove it.
                         if fullname
                             .contains(&peer.cert_fingerprint[..8.min(peer.cert_fingerprint.len())])
                             || peer.id == fullname
@@ -292,6 +304,13 @@ impl DiscoveryService {
                                 "Peer removed via mDNS"
                             );
                             peer_registry.remove(&peer.id);
+
+                            // Emit event to the frontend.
+                            if let Ok(guard) = app_handle.try_read() {
+                                if let Some(handle) = guard.as_ref() {
+                                    events::emit_peer_lost(handle, &peer.id);
+                                }
+                            }
                             break;
                         }
                     }
@@ -309,12 +328,24 @@ impl DiscoveryService {
     }
 
     /// Background loop that calls `evict_stale()` every 10 seconds.
-    fn eviction_loop(peer_registry: Arc<PeerRegistry>) {
+    fn eviction_loop(
+        peer_registry: Arc<PeerRegistry>,
+        app_handle: Arc<tokio::sync::RwLock<Option<tauri::AppHandle>>>,
+    ) {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(10));
             let evicted = peer_registry.evict_stale();
             if !evicted.is_empty() {
                 debug!(count = evicted.len(), "Evicted stale peers");
+
+                // Emit peer-lost events for evicted peers.
+                if let Ok(guard) = app_handle.try_read() {
+                    if let Some(handle) = guard.as_ref() {
+                        for peer_id in &evicted {
+                            events::emit_peer_lost(handle, peer_id);
+                        }
+                    }
+                }
             }
         }
     }

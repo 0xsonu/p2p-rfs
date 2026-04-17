@@ -1,8 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
-import {
-  getTransferHistory,
-  type TransferHistoryEntry,
-} from "../services/p2pBridge";
+import { useState, useCallback } from "react";
+import { useAppState } from "../hooks/useAppState";
+import type { TransferHistoryEntry } from "../services/p2pBridge";
 
 /**
  * Sort transfer history entries in descending chronological order by timestamp.
@@ -48,19 +46,11 @@ function directionLabel(direction: string) {
 }
 
 export function HistoryScreen() {
-  const [entries, setEntries] = useState<TransferHistoryEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { history, historyLoading } = useAppState();
   const [selectedFailure, setSelectedFailure] =
     useState<TransferHistoryEntry | null>(null);
 
-  useEffect(() => {
-    getTransferHistory()
-      .then((data) => setEntries(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const sorted = sortHistory(entries);
+  const sorted = sortHistory(history);
 
   const handleSelectFailed = useCallback((entry: TransferHistoryEntry) => {
     if (entry.status === "failed") {
@@ -77,7 +67,7 @@ export function HistoryScreen() {
       </h2>
 
       <div className="bg-white rounded-lg shadow">
-        {loading ? (
+        {historyLoading ? (
           <p className="p-4 text-sm text-gray-500">Loading history…</p>
         ) : sorted.length === 0 ? (
           <p className="p-4 text-sm text-gray-500">No transfer history.</p>
@@ -112,7 +102,6 @@ export function HistoryScreen() {
                   </span>
                 </div>
 
-                {/* Failure detail */}
                 {selectedFailure?.session_id === entry.session_id && (
                   <div className="mt-2 rounded border border-red-200 bg-red-50 p-3">
                     <p className="text-sm text-red-800 font-medium">

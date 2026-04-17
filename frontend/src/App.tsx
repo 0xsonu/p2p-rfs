@@ -1,6 +1,7 @@
 import { useState } from "react";
 import "./App.css";
 import { useP2PEngine } from "./hooks/useP2PEngine";
+import { AppStateProvider } from "./providers/AppStateProvider";
 import { DashboardScreen } from "./screens/DashboardScreen";
 import { UploadScreen } from "./screens/UploadScreen";
 import { DownloadScreen } from "./screens/DownloadScreen";
@@ -47,11 +48,40 @@ function NavBar({
   );
 }
 
-function App() {
-  const engine = useP2PEngine();
+/**
+ * Screen content rendered inside the provider.
+ * All screens stay mounted (hidden via CSS) so their state is never lost.
+ */
+function AppContent() {
   const [screen, setScreen] = useState<Screen>("peers");
 
-  // Show engine status while starting
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <NavBar current={screen} onNavigate={setScreen} />
+      <div className="mx-auto max-w-4xl px-6 py-6">
+        <div style={{ display: screen === "peers" ? "block" : "none" }}>
+          <DashboardScreen />
+        </div>
+        <div style={{ display: screen === "send" ? "block" : "none" }}>
+          <UploadScreen />
+        </div>
+        <div style={{ display: screen === "receive" ? "block" : "none" }}>
+          <DownloadScreen />
+        </div>
+        <div style={{ display: screen === "history" ? "block" : "none" }}>
+          <HistoryScreen />
+        </div>
+        <div style={{ display: screen === "settings" ? "block" : "none" }}>
+          <SettingsScreen />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const engine = useP2PEngine();
+
   if (engine.status === "starting") {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -82,16 +112,9 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <NavBar current={screen} onNavigate={setScreen} />
-      <div className="mx-auto max-w-4xl px-6 py-6">
-        {screen === "peers" && <DashboardScreen />}
-        {screen === "send" && <UploadScreen />}
-        {screen === "receive" && <DownloadScreen />}
-        {screen === "history" && <HistoryScreen />}
-        {screen === "settings" && <SettingsScreen />}
-      </div>
-    </div>
+    <AppStateProvider>
+      <AppContent />
+    </AppStateProvider>
   );
 }
 

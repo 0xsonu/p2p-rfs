@@ -1,71 +1,21 @@
-import { useState, useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { openFileDialog } from "../services/tauriBridge";
-import {
-  listPeers,
-  sendFile,
-  pauseTransfer,
-  cancelTransfer,
-  onTransferProgress,
-  onTransferComplete,
-  onTransferFailed,
-  type PeerInfo,
-  type TransferProgressPayload,
-} from "../services/p2pBridge";
+import { useAppState } from "../hooks/useAppState";
 import { TransferProgress } from "../components/TransferProgress";
 
-type SendStatus = "idle" | "sending" | "paused" | "completed" | "failed";
-
-/**
- * Send screen — pick a file via native dialog, choose a connected peer,
- * and send with real-time progress, pause/cancel controls.
- *
- * Requirements: 5.1, 12.1, 12.2, 12.3, 12.4, 15.1–15.5
- */
 export function UploadScreen() {
-  const [peers, setPeers] = useState<PeerInfo[]>([]);
-  const [selectedPeer, setSelectedPeer] = useState<string>("");
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [status, setStatus] = useState<SendStatus>("idle");
-  const [progress, setProgress] = useState<TransferProgressPayload | null>(
-    null,
-  );
-  const [completedHash, setCompletedHash] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    peers,
+    send,
+    setSendSelectedPeer,
+    setSendSelectedFile,
+    handleSend,
+    handleSendPause,
+    handleSendCancel,
+    handleSendRetry,
+  } = useAppState();
 
-  // Load connected peers
-  useEffect(() => {
-    listPeers()
-      .then((list) => setPeers(list.filter((p) => p.status === "Connected")))
-      .catch(() => {});
-  }, []);
-
-  // Subscribe to transfer events
-  useEffect(() => {
-    const unProgress = onTransferProgress((p) => {
-      if (sessionId && p.session_id === sessionId) {
-        setProgress(p);
-      }
-    });
-    const unComplete = onTransferComplete((p) => {
-      if (sessionId && p.session_id === sessionId) {
-        setStatus("completed");
-        setCompletedHash(p.hash);
-      }
-    });
-    const unFailed = onTransferFailed((p) => {
-      if (sessionId && p.session_id === sessionId) {
-        setStatus("failed");
-        setError(p.reason);
-      }
-    });
-
-    return () => {
-      unProgress.then((fn) => fn());
-      unComplete.then((fn) => fn());
-      unFailed.then((fn) => fn());
-    };
-  }, [sessionId]);
+  const connectedPeers = peers.filter((p) => p.status === "Connected");
 
   const handlePickFile = useCallback(async () => {
     const paths = await openFileDialog({
@@ -73,62 +23,19 @@ export function UploadScreen() {
       title: "Select file to send",
     });
     if (paths.length > 0) {
-      setSelectedFile(paths[0]);
+      setSendSelectedFile(paths[0]);
     }
-  }, []);
+  }, [setSendSelectedFile]);
 
-  const handleSend = useCallback(async () => {
-    if (!selectedFile || !selectedPeer) return;
-    setStatus("sending");
-    setError(null);
-    setProgress(null);
-    setCompletedHash(null);
-    try {
-      const sid = await sendFile(selectedPeer, selectedFile);
-      setSessionId(sid);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Send failed";
-      setError(message);
-      setStatus("failed");
-    }
-  }, [selectedFile, selectedPeer]);
+  const isActive = send.status === "sending" || send.status === "paused";
 
-  const handlePause = useCallback(async () => {
-    if (!sessionId) return;
-    try {
-      await pauseTransfer(sessionId);
-      setStatus("paused");
-    } catch {}
-  }, [sessionId]);
-
-  const handleCancel = useCallback(async () => {
-    if (!sessionId) return;
-    try {
-      await cancelTransfer(sessionId);
-    } catch {}
-    setStatus("idle");
-    setSessionId(null);
-    setProgress(null);
-  }, [sessionId]);
-
-  const handleRetry = useCallback(() => {
-    setStatus("idle");
-    setSessionId(null);
-    setProgress(null);
-    setError(null);
-    setCompletedHash(null);
-  }, []);
-
-  const isActive = status === "sending" || status === "paused";
-
-  // Build progress object for TransferProgress component
-  const progressData = progress
+  const progressData = send.progress
     ? {
-        percentage: progress.percentage,
-        speed: progress.speed_bps,
-        eta: progress.eta_seconds,
-        completedChunks: progress.completed_chunks,
-        totalChunks: progress.total_chunks,
+        percentage: send.progress.percentage,
+        speed: send.progress.speed_bps,
+        eta: send.progress.eta_seconds,
+        completedChunks: send.progress.completed_chunks,
+        totalChunks: send.progress.total_chunks,
       }
     : { percentage: 0, speed: 0, eta: 0, completedChunks: 0, totalChunks: 0 };
 
@@ -145,13 +52,13 @@ export function UploadScreen() {
             Send to peer
           </label>
           <select
-            value={selectedPeer}
-            onChange={(e) => setSelectedPeer(e.target.value)}
+            value={send.selectedPeer}
+            onChange={(e) => setSendSelectedPeer(e.target.value)}
             disabled={isActive}
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           >
             <option value="">Select a connected peer…</option>
-            {peers.map((p) => (
+            {connectedPeers.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.display_name} ({p.addresses[0] ?? "unknown"})
               </option>
@@ -171,15 +78,15 @@ export function UploadScreen() {
             >
               Choose File
             </button>
-            {selectedFile && (
+            {send.selectedFile && (
               <span className="text-sm text-gray-600 truncate">
-                {selectedFile}
+                {send.selectedFile}
               </span>
             )}
           </div>
         </div>
 
-        {selectedFile && selectedPeer && status === "idle" && (
+        {send.selectedFile && send.selectedPeer && send.status === "idle" && (
           <button
             onClick={handleSend}
             className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -194,9 +101,9 @@ export function UploadScreen() {
         <div className="bg-white rounded-lg shadow p-4 space-y-4">
           <TransferProgress progress={progressData} />
           <div className="flex gap-2">
-            {status === "sending" ? (
+            {send.status === "sending" ? (
               <button
-                onClick={handlePause}
+                onClick={handleSendPause}
                 className="rounded bg-yellow-500 px-3 py-1 text-xs font-medium text-white hover:bg-yellow-600"
               >
                 Pause
@@ -210,7 +117,7 @@ export function UploadScreen() {
               </button>
             )}
             <button
-              onClick={handleCancel}
+              onClick={handleSendCancel}
               className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
             >
               Cancel
@@ -220,13 +127,13 @@ export function UploadScreen() {
       )}
 
       {/* Success */}
-      {status === "completed" && (
+      {send.status === "completed" && (
         <div className="bg-white rounded-lg shadow p-4">
           <div className="rounded bg-green-50 border border-green-200 text-green-800 px-4 py-3 text-sm">
             <p className="font-medium">File sent successfully</p>
-            {completedHash && (
+            {send.completedHash && (
               <p className="text-xs mt-1 font-mono break-all">
-                Hash: {completedHash}
+                Hash: {send.completedHash}
               </p>
             )}
           </div>
@@ -234,13 +141,13 @@ export function UploadScreen() {
       )}
 
       {/* Error */}
-      {status === "failed" && (
+      {send.status === "failed" && (
         <div className="bg-white rounded-lg shadow p-4">
           <div className="rounded bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
             <p className="font-medium">Send failed</p>
-            {error && <p className="text-xs mt-1">{error}</p>}
+            {send.error && <p className="text-xs mt-1">{send.error}</p>}
             <button
-              onClick={handleRetry}
+              onClick={handleSendRetry}
               className="mt-2 rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
             >
               Retry

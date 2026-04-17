@@ -1,29 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { saveFileDialog } from "../services/tauriBridge";
-import {
-  acceptTransfer,
-  rejectTransfer,
-  onIncomingTransfer,
-  onTransferProgress,
-  onTransferComplete,
-  onTransferFailed,
-  type IncomingTransferPayload,
-  type TransferProgressPayload,
-} from "../services/p2pBridge";
+import { useAppState, type IncomingRequest } from "../hooks/useAppState";
 import { TransferProgress } from "../components/TransferProgress";
-
-interface IncomingRequest extends IncomingTransferPayload {
-  status: "pending" | "accepted" | "rejected";
-}
-
-interface ActiveReceive {
-  sessionId: string;
-  fileName: string;
-  progress: TransferProgressPayload | null;
-  status: "receiving" | "completed" | "failed";
-  hash?: string;
-  error?: string;
-}
 
 function formatSize(bytes: number): string {
   if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
@@ -32,106 +10,21 @@ function formatSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-/**
- * Receive screen — listen for incoming transfer requests, accept/reject,
- * choose save location, and display receive progress.
- *
- * Requirements: 6.1, 12.1, 12.2, 16.1–16.5
- */
 export function DownloadScreen() {
-  const [incoming, setIncoming] = useState<IncomingRequest[]>([]);
-  const [activeReceives, setActiveReceives] = useState<ActiveReceive[]>([]);
+  const { incoming, activeReceives, handleAccept, handleReject } =
+    useAppState();
 
-  // Subscribe to incoming transfer requests
-  useEffect(() => {
-    const unIncoming = onIncomingTransfer((payload) => {
-      setIncoming((prev) => [...prev, { ...payload, status: "pending" }]);
-    });
-    return () => {
-      unIncoming.then((fn) => fn());
-    };
-  }, []);
-
-  // Subscribe to progress/complete/failed events for active receives
-  useEffect(() => {
-    const unProgress = onTransferProgress((p) => {
-      setActiveReceives((prev) =>
-        prev.map((r) =>
-          r.sessionId === p.session_id ? { ...r, progress: p } : r,
-        ),
-      );
-    });
-    const unComplete = onTransferComplete((p) => {
-      setActiveReceives((prev) =>
-        prev.map((r) =>
-          r.sessionId === p.session_id
-            ? { ...r, status: "completed", hash: p.hash }
-            : r,
-        ),
-      );
-    });
-    const unFailed = onTransferFailed((p) => {
-      setActiveReceives((prev) =>
-        prev.map((r) =>
-          r.sessionId === p.session_id
-            ? { ...r, status: "failed", error: p.reason }
-            : r,
-        ),
-      );
-    });
-    return () => {
-      unProgress.then((fn) => fn());
-      unComplete.then((fn) => fn());
-      unFailed.then((fn) => fn());
-    };
-  }, []);
-
-  const handleAccept = useCallback(async (req: IncomingRequest) => {
-    const savePath = await saveFileDialog({
-      defaultPath: req.file_name,
-      title: "Save received file as",
-    });
-    if (!savePath) return; // user cancelled
-
-    setIncoming((prev) =>
-      prev.map((r) =>
-        r.session_id === req.session_id ? { ...r, status: "accepted" } : r,
-      ),
-    );
-    setActiveReceives((prev) => [
-      ...prev,
-      {
-        sessionId: req.session_id,
-        fileName: req.file_name,
-        progress: null,
-        status: "receiving",
-      },
-    ]);
-
-    try {
-      await acceptTransfer(req.session_id, savePath);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Accept failed";
-      setActiveReceives((prev) =>
-        prev.map((r) =>
-          r.sessionId === req.session_id
-            ? { ...r, status: "failed", error: message }
-            : r,
-        ),
-      );
-    }
-  }, []);
-
-  const handleReject = useCallback(async (sessionId: string) => {
-    setIncoming((prev) =>
-      prev.map((r) =>
-        r.session_id === sessionId ? { ...r, status: "rejected" } : r,
-      ),
-    );
-    try {
-      await rejectTransfer(sessionId);
-    } catch {}
-  }, []);
+  const onAccept = useCallback(
+    async (req: IncomingRequest) => {
+      const savePath = await saveFileDialog({
+        defaultPath: req.file_name,
+        title: "Save received file as",
+      });
+      if (!savePath) return;
+      await handleAccept(req, savePath);
+    },
+    [handleAccept],
+  );
 
   const pendingRequests = incoming.filter((r) => r.status === "pending");
 
@@ -157,7 +50,7 @@ export function DownloadScreen() {
               </p>
               <div className="flex gap-2 mt-3">
                 <button
-                  onClick={() => handleAccept(req)}
+                  onClick={() => onAccept(req)}
                   className="rounded bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700"
                 >
                   Accept

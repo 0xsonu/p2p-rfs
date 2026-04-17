@@ -189,12 +189,16 @@ impl P2PEngine {
         };
         let storage_engine = Arc::new(StorageEngine::new(storage_config));
 
+        // Create the shared app handle early so discovery can use it.
+        let app_handle: Arc<RwLock<Option<tauri::AppHandle>>> = Arc::new(RwLock::new(None));
+
         // 6. Start mDNS discovery.
         let discovery = Arc::new(DiscoveryService::start(
             Arc::clone(&peer_registry),
             &config.display_name,
             bound_port,
             cert_manager.fingerprint(),
+            Arc::clone(&app_handle),
         )?);
         info!("mDNS discovery started");
 
@@ -258,7 +262,7 @@ impl P2PEngine {
             pending_incoming,
             integrity,
             _storage_engine: storage_engine,
-            app_handle: Arc::new(RwLock::new(None)),
+            app_handle,
         })
     }
 
@@ -315,6 +319,22 @@ impl P2PEngine {
 
         // Exchange PeerInfoExchange on the first bidirectional stream.
         let peer_id = self.exchange_peer_info(&connection).await?;
+
+        // Ensure the peer exists in the registry (handles manual connections
+        // where the peer may not have been discovered via mDNS).
+        if self.peer_registry.get(&peer_id).is_none() {
+            let now = chrono::Utc::now();
+            let peer_info = crate::peer_registry::PeerInfo {
+                id: peer_id.clone(),
+                display_name: String::new(),
+                addresses: vec![addr],
+                cert_fingerprint: peer_id.clone(),
+                status: crate::peer_registry::PeerStatus::Connected,
+                discovered_at: now,
+                last_seen: now,
+            };
+            self.peer_registry.upsert(peer_info);
+        }
 
         // Update peer registry status.
         self.peer_registry
@@ -1168,6 +1188,21 @@ impl P2PEngine {
                             .await
                         {
                             Ok(peer_id) => {
+                                // Ensure the peer exists in the registry for
+                                // incoming connections not yet discovered via mDNS.
+                                if registry.get(&peer_id).is_none() {
+                                    let now = chrono::Utc::now();
+                                    let peer_info = crate::peer_registry::PeerInfo {
+                                        id: peer_id.clone(),
+                                        display_name: String::new(),
+                                        addresses: vec![remote_addr],
+                                        cert_fingerprint: peer_id.clone(),
+                                        status: PeerStatus::Connected,
+                                        discovered_at: now,
+                                        last_seen: now,
+                                    };
+                                    registry.upsert(peer_info);
+                                }
                                 registry.set_status(&peer_id, PeerStatus::Connected);
                                 conns.insert(peer_id.clone(), connection.clone());
                                 info!(

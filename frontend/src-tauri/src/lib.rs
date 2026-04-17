@@ -25,6 +25,7 @@ pub fn run() {
     observability::init_tracing_subscriber();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new(P2PSettings::default()))
         .invoke_handler(tauri::generate_handler![
             commands::start_engine,

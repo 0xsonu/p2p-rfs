@@ -1,9 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
-import {
-  getSettings,
-  saveSettings,
-  type P2PSettings,
-} from "../services/p2pBridge";
+import { useCallback } from "react";
+import { useAppState } from "../hooks/useAppState";
+import type { P2PSettings } from "../services/p2pBridge";
 
 /**
  * Validation error for a specific settings field.
@@ -58,28 +55,17 @@ export function validateSettings(settings: P2PSettings): ValidationError[] {
   return errors;
 }
 
-const DEFAULT_SETTINGS: P2PSettings = {
-  display_name: "",
-  listen_port: 4433,
-  chunk_size: 4194304,
-  parallel_streams: 4,
-  per_transfer_rate_limit: 0,
-  download_dir: "",
-};
-
 export function SettingsScreen() {
-  const [settings, setSettings] = useState<P2PSettings>(DEFAULT_SETTINGS);
-  const [errors, setErrors] = useState<ValidationError[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const {
+    settings,
+    settingsLoading,
+    settingsSaved,
+    settingsSaveError,
+    setSettings,
+    handleSaveSettings,
+  } = useAppState();
 
-  useEffect(() => {
-    getSettings()
-      .then((s) => setSettings(s))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const errors = validateSettings(settings);
 
   const fieldError = useCallback(
     (field: string) => errors.find((e) => e.field === field),
@@ -88,36 +74,18 @@ export function SettingsScreen() {
 
   const handleChange = useCallback(
     (field: keyof P2PSettings, value: string) => {
-      setSaved(false);
-      setSaveError(null);
-      setSettings((prev) => {
-        if (field === "display_name" || field === "download_dir") {
-          return { ...prev, [field]: value };
-        }
-        const num = parseInt(value, 10);
-        return { ...prev, [field]: isNaN(num) ? 0 : num };
+      setSettings({
+        ...settings,
+        [field]:
+          field === "display_name" || field === "download_dir"
+            ? value
+            : parseInt(value, 10) || 0,
       });
     },
-    [],
+    [settings, setSettings],
   );
 
-  const handleSave = useCallback(async () => {
-    const validationErrors = validateSettings(settings);
-    setErrors(validationErrors);
-    if (validationErrors.length > 0) return;
-
-    setSaveError(null);
-    try {
-      await saveSettings(settings);
-      setSaved(true);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to save settings";
-      setSaveError(message);
-    }
-  }, [settings]);
-
-  if (loading) {
+  if (settingsLoading) {
     return (
       <div className="space-y-6">
         <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
@@ -248,19 +216,20 @@ export function SettingsScreen() {
 
         <div className="flex items-center gap-3 pt-2">
           <button
-            onClick={handleSave}
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            onClick={handleSaveSettings}
+            disabled={errors.length > 0}
+            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             Save Settings
           </button>
-          {saved && (
+          {settingsSaved && (
             <span className="text-sm text-green-600 font-medium">
               Settings saved.
             </span>
           )}
-          {saveError && (
+          {settingsSaveError && (
             <span className="text-sm text-red-600 font-medium">
-              {saveError}
+              {settingsSaveError}
             </span>
           )}
         </div>

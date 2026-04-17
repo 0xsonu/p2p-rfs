@@ -75,6 +75,7 @@ impl PeerRegistry {
     pub fn set_status(&self, peer_id: &PeerId, status: PeerStatus) {
         if let Some(mut entry) = self.peers.get_mut(peer_id) {
             entry.status = status;
+            entry.last_seen = Utc::now();
         }
     }
 

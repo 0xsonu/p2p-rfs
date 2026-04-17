@@ -1,95 +1,25 @@
-import { useState, useCallback, useEffect } from "react";
-import {
-  getLocalInfo,
-  listPeers,
-  connectToPeer,
-  onPeerDiscovered,
-  onPeerLost,
-  type PeerInfo,
-  type LocalInfo,
-} from "../services/p2pBridge";
+import { useState, useCallback } from "react";
+import { useAppState } from "../hooks/useAppState";
 
 export function DashboardScreen() {
-  const [localInfo, setLocalInfo] = useState<LocalInfo | null>(null);
-  const [peers, setPeers] = useState<PeerInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    localInfo,
+    peers,
+    peersLoading,
+    connectingId,
+    connectError,
+    handleConnect,
+    handleManualConnect,
+  } = useAppState();
+
   const [manualAddress, setManualAddress] = useState("");
-  const [connectingId, setConnectingId] = useState<string | null>(null);
-  const [connectError, setConnectError] = useState<string | null>(null);
 
-  // Fetch local info and initial peer list
-  useEffect(() => {
-    Promise.all([getLocalInfo(), listPeers()])
-      .then(([info, peerList]) => {
-        setLocalInfo(info);
-        setPeers(peerList);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  // Subscribe to peer discovery/lost events
-  useEffect(() => {
-    const unlistenDiscovered = onPeerDiscovered((peer) => {
-      setPeers((prev) => {
-        const idx = prev.findIndex((p) => p.id === peer.id);
-        if (idx >= 0) {
-          const updated = [...prev];
-          updated[idx] = peer;
-          return updated;
-        }
-        return [...prev, peer];
-      });
-    });
-
-    const unlistenLost = onPeerLost((payload) => {
-      setPeers((prev) => prev.filter((p) => p.id !== payload.peer_id));
-    });
-
-    return () => {
-      unlistenDiscovered.then((fn) => fn());
-      unlistenLost.then((fn) => fn());
-    };
-  }, []);
-
-  const handleConnect = useCallback(async (peerId: string, address: string) => {
-    setConnectingId(peerId);
-    setConnectError(null);
-    try {
-      const updated = await connectToPeer(address);
-      setPeers((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Connection failed";
-      setConnectError(message);
-    } finally {
-      setConnectingId(null);
-    }
-  }, []);
-
-  const handleManualConnect = useCallback(async () => {
+  const onManualConnect = useCallback(async () => {
     const addr = manualAddress.trim();
     if (!addr) return;
-    setConnectingId("manual");
-    setConnectError(null);
-    try {
-      const peer = await connectToPeer(addr);
-      setPeers((prev) => {
-        const idx = prev.findIndex((p) => p.id === peer.id);
-        if (idx >= 0) {
-          const updated = [...prev];
-          updated[idx] = peer;
-          return updated;
-        }
-        return [...prev, peer];
-      });
-      setManualAddress("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Connection failed";
-      setConnectError(message);
-    } finally {
-      setConnectingId(null);
-    }
-  }, [manualAddress]);
+    await handleManualConnect(addr);
+    setManualAddress("");
+  }, [manualAddress, handleManualConnect]);
 
   function statusBadge(status: string) {
     const colors: Record<string, string> = {
@@ -118,7 +48,7 @@ export function DashboardScreen() {
         <h3 className="text-sm font-semibold text-gray-700 mb-2">
           This Device
         </h3>
-        {loading ? (
+        {peersLoading ? (
           <p className="text-sm text-gray-500">Loading…</p>
         ) : localInfo ? (
           <div className="text-sm text-gray-600 space-y-1">
@@ -147,7 +77,7 @@ export function DashboardScreen() {
             className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
           />
           <button
-            onClick={handleManualConnect}
+            onClick={onManualConnect}
             disabled={connectingId === "manual" || !manualAddress.trim()}
             className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
@@ -164,7 +94,7 @@ export function DashboardScreen() {
         <h3 className="text-sm font-semibold text-gray-700 mb-3">
           Discovered Peers
         </h3>
-        {loading ? (
+        {peersLoading ? (
           <p className="text-sm text-gray-500">Scanning network…</p>
         ) : peers.length === 0 ? (
           <p className="text-sm text-gray-500">
